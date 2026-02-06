@@ -10,9 +10,20 @@
     <a href="/">Back</a>
     {% if clip %}
       <h1>{{ clip.filename }}</h1>
-      <img class="plot" src="{{ clip.image_path }}" alt="Feature plot" />
+      <p>Sample rate: {{ clip.sr }} Hz</p>
+      <p>Duration: {{ '%.2f'|format(clip.duration) }} seconds</p>
+      <section class="images">
+        <figure>
+          <img class="plot" src="{{ clip.waveform_image_path }}" alt="Waveform" />
+          <figcaption>Waveform</figcaption>
+        </figure>
+        <figure>
+          <img class="plot" src="{{ clip.spectrogram_image_path }}" alt="Spectrogram" />
+          <figcaption>Spectrogram</figcaption>
+        </figure>
+      </section>
       <h2>Vector</h2>
-      <pre class="vector">{{ clip.feature_vector }}</pre>
+      <pre class="vector">{{ clip.vector }}</pre>
     {% else %}
       <h1>Clip not found</h1>
       <p>Return to the home page to upload a new clip.</p>
