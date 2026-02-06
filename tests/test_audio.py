@@ -14,7 +14,7 @@ def test_extract_features_returns_vector(tmp_path):
 
     vector = extract_features(audio_path)
 
-    assert vector.shape == (20,)
+    assert vector.shape == (40,)
     assert np.isfinite(vector).all()
 
 

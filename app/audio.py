@@ -10,7 +10,9 @@ import numpy as np
 def extract_features(file_path: str | Path, *, sample_rate: int = 22050) -> np.ndarray:
     audio, sr = librosa.load(path=str(file_path), sr=sample_rate)
     mfcc = librosa.feature.mfcc(y=audio, sr=sr, n_mfcc=20)
-    return mfcc.mean(axis=1)
+    mfcc_mean = mfcc.mean(axis=1)
+    mfcc_std = mfcc.std(axis=1)
+    return np.concatenate([mfcc_mean, mfcc_std])
 
 
 def cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
