@@ -16,13 +16,6 @@
         <li><strong>Duration:</strong> {{ '%.2f'|format(clip.duration) }} seconds</li>
         <li><strong>Created:</strong> {{ clip.created_at }}</li>
       </ul>
-      <form class="neighbors" action="/clips/{{ clip.id }}/neighbors" method="get">
-        <label>
-          Find neighbors (k)
-          <input type="number" name="k" min="1" value="5" />
-        </label>
-        <button type="submit">Find neighbors</button>
-      </form>
       <section class="images">
         <figure>
           <img class="plot" src="{{ clip.waveform_image_path }}" alt="Waveform" />
@@ -36,10 +29,62 @@
       <h2>Vector</h2>
       <p>First 10 values</p>
       <pre class="vector">{{ vector_preview }}</pre>
+      <section class="neighbors">
+        <h3>Nearest neighbors</h3>
+        <div class="neighbors-controls">
+          <label for="neighbors-k">Find neighbors (k)</label>
+          <input id="neighbors-k" type="number" min="1" value="5" />
+          <button type="button" id="neighbors-refresh">Find neighbors</button>
+        </div>
+        <p id="neighbors-status" class="neighbors-status">Loading...</p>
+        <ul id="neighbors-list" class="neighbors-list"></ul>
+      </section>
     {% else %}
       <h1>Clip not found</h1>
       <p>Return to the home page to upload a new clip.</p>
     {% endif %}
   </main>
+  {% if clip %}
+  <script>
+    const neighborsList = document.getElementById("neighbors-list");
+    const neighborsStatus = document.getElementById("neighbors-status");
+    const neighborsInput = document.getElementById("neighbors-k");
+    const neighborsButton = document.getElementById("neighbors-refresh");
+
+    const renderNeighbors = (neighbors) => {
+      neighborsList.innerHTML = "";
+      if (!neighbors.length) {
+        neighborsStatus.textContent = "No neighbors found.";
+        return;
+      }
+      neighborsStatus.textContent = "";
+      neighbors.forEach((neighbor) => {
+        const item = document.createElement("li");
+        item.textContent = `${neighbor.filename} (ID ${neighbor.id}) — distance ${neighbor.distance.toFixed(4)}`;
+        neighborsList.appendChild(item);
+      });
+    };
+
+    const fetchNeighbors = async () => {
+      const k = Number(neighborsInput.value) || 1;
+      neighborsStatus.textContent = "Loading...";
+      neighborsList.innerHTML = "";
+      try {
+        const response = await fetch(`/clips/{{ clip.id }}/neighbors?k=${k}`);
+        if (!response.ok) {
+          neighborsStatus.textContent = "Unable to load neighbors.";
+          return;
+        }
+        const payload = await response.json();
+        renderNeighbors(payload.neighbors || []);
+      } catch (error) {
+        neighborsStatus.textContent = "Unable to load neighbors.";
+      }
+    };
+
+    neighborsButton.addEventListener("click", fetchNeighbors);
+    fetchNeighbors();
+  </script>
+  {% endif %}
 </body>
 </html>

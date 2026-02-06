@@ -60,3 +60,32 @@ button {
   border-radius: 8px;
   overflow-x: auto;
 }
+
+.neighbors {
+  margin-top: 24px;
+  padding: 16px;
+  background: #f8fafc;
+  border-radius: 10px;
+}
+
+.neighbors-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.neighbors-controls input {
+  max-width: 120px;
+  padding: 6px 8px;
+}
+
+.neighbors-list {
+  margin: 12px 0 0;
+  padding-left: 20px;
+}
+
+.neighbors-status {
+  margin: 8px 0 0;
+  color: #4a5568;
+}

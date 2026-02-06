@@ -28,3 +28,15 @@ class ClipListItem(BaseModel):
     filename: str
     duration: float
     created_at: datetime
+
+
+class ClipNeighbor(BaseModel):
+    id: int
+    filename: str
+    distance: float
+
+
+class ClipNeighborsResponse(BaseModel):
+    clip_id: int
+    k: int
+    neighbors: list[ClipNeighbor]

@@ -9,7 +9,7 @@ import librosa
 import librosa.display
 import matplotlib.pyplot as plt
 import numpy as np
-from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -18,7 +18,7 @@ from starlette.requests import Request
 
 from app.db import get_session, init_db
 from app.models import ClipMetadata
-from app.schemas import ClipDetail, ClipListItem
+from app.schemas import ClipDetail, ClipListItem, ClipNeighbor, ClipNeighborsResponse
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -49,6 +49,21 @@ def session_dep():
 
 
 SessionDep = Annotated[object, Depends(session_dep)]
+
+
+def cosine_distance(vector_a: list[float], vector_b: list[float]) -> float:
+    array_a = np.array(vector_a, dtype=float)
+    array_b = np.array(vector_b, dtype=float)
+    if array_a.size == 0 or array_b.size == 0:
+        return 1.0
+    norm_product = np.linalg.norm(array_a) * np.linalg.norm(array_b)
+    if norm_product == 0:
+        return 1.0
+    try:
+        similarity = float(np.dot(array_a, array_b) / norm_product)
+    except ValueError:
+        return 1.0
+    return float(1 - similarity)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -184,6 +199,34 @@ async def clip_detail_api(clip_id: int, session: SessionDep):
         waveform_image_path=clip.waveform_image_path,
         spectrogram_image_path=clip.spectrogram_image_path,
     )
+
+
+@app.get("/clips/{clip_id}/neighbors", response_model=ClipNeighborsResponse)
+async def clip_neighbors(
+    clip_id: int,
+    session: SessionDep,
+    k: int = Query(5, ge=1),
+):
+    target = session.get(ClipMetadata, clip_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="Clip not found.")
+    candidates = session.exec(
+        select(ClipMetadata).where(ClipMetadata.id != clip_id),
+    ).all()
+    neighbors: list[ClipNeighbor] = []
+    for clip in candidates:
+        if not clip.vector:
+            continue
+        distance = cosine_distance(target.vector or [], clip.vector)
+        neighbors.append(
+            ClipNeighbor(
+                id=clip.id,
+                filename=clip.filename,
+                distance=distance,
+            )
+        )
+    neighbors_sorted = sorted(neighbors, key=lambda item: item.distance)[:k]
+    return ClipNeighborsResponse(clip_id=clip_id, k=k, neighbors=neighbors_sorted)
 
 
 app.mount("/data", StaticFiles(directory=DATA_DIR), name="data")
