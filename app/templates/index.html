@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Wave2Vector</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main class="container">
+    <h1>Wave2Vector</h1>
+
+    <section class="upload">
+      <h2>Upload a clip</h2>
+      <form action="/upload" method="post" enctype="multipart/form-data">
+        <label>
+          Title
+          <input type="text" name="title" placeholder="Optional title" />
+        </label>
+        <label>
+          Audio file
+          <input type="file" name="file" required />
+        </label>
+        <button type="submit">Upload</button>
+      </form>
+    </section>
+
+    <section>
+      <h2>Clips</h2>
+      {% if clips %}
+        <ul class="clip-list">
+          {% for clip in clips %}
+            <li>
+              <a href="/clips/{{ clip.id }}">{{ clip.filename }}</a>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p>No clips uploaded yet.</p>
+      {% endif %}
+    </section>
+  </main>
+</body>
+</html>

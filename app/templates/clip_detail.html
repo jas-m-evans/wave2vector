@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Clip Detail</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <main class="container">
+    <a href="/">Back</a>
+    {% if clip %}
+      <h1>{{ clip.filename }}</h1>
+      <img class="plot" src="{{ clip.image_path }}" alt="Feature plot" />
+      <h2>Vector</h2>
+      <pre class="vector">{{ clip.feature_vector }}</pre>
+    {% else %}
+      <h1>Clip not found</h1>
+      <p>Return to the home page to upload a new clip.</p>
+    {% endif %}
+  </main>
+</body>
+</html>
