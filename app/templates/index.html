@@ -27,13 +27,28 @@
     <section>
       <h2>Clips</h2>
       {% if clips %}
-        <ul class="clip-list">
-          {% for clip in clips %}
-            <li>
-              <a href="/clips/{{ clip.id }}">{{ clip.filename }}</a>
-            </li>
-          {% endfor %}
-        </ul>
+        <table class="clip-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Filename</th>
+              <th>Duration</th>
+              <th>Created</th>
+              <th>Details</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for clip in clips %}
+              <tr>
+                <td>{{ clip.id }}</td>
+                <td>{{ clip.filename }}</td>
+                <td>{{ '%.2f'|format(clip.duration) }}s</td>
+                <td>{{ clip.created_at }}</td>
+                <td><a href="/clips/{{ clip.id }}">View</a></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
       {% else %}
         <p>No clips uploaded yet.</p>
       {% endif %}
