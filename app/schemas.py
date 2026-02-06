@@ -1,14 +1,23 @@
+from datetime import datetime
+
 from pydantic import BaseModel
 
 
 class ClipCreateResponse(BaseModel):
     id: int
     filename: str
-    image_path: str
+    path: str
+    waveform_image_path: str
+    spectrogram_image_path: str
 
 
 class ClipDetail(BaseModel):
     id: int
     filename: str
-    image_path: str
-    feature_vector: list[float]
+    path: str
+    sr: int
+    duration: float
+    created_at: datetime
+    vector: list[float]
+    waveform_image_path: str
+    spectrogram_image_path: str
