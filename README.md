@@ -1,36 +1,51 @@
-# wave2vector
+# Wave2Vector Lab
 
-Wave2vector lets you upload short audio clips, extract MFCC-based embeddings, and explore similar clips.
+Wave2Vector Lab is a minimal research-friendly prototype for uploading short audio clips, extracting MFCC-based embeddings, and exploring similarity via cosine distance.
 
-## Installation
+## Why this is useful (academic framing)
 
-Install dependencies directly, or create a local virtual environment first.
+This project provides a compact, reproducible pipeline for turning raw audio into feature vectors and visualizations. It can be used to:
 
-```bash
-# Optional: create and use a virtual environment
-make install VENV=.venv
-source .venv/bin/activate
+- Demonstrate signal processing concepts (waveforms, STFT spectrograms, MFCCs).
+- Prototype retrieval experiments (nearest neighbor search in embedding space).
+- Serve as a baseline for comparing handcrafted vs. learned audio embeddings.
 
-# Or install into the current environment
-make install
-```
+## Quick start (step-by-step)
 
-## First run
+1. **Clone and enter the repo**
 
-Start the API server and open the app in your browser.
+   ```bash
+   git clone <repo-url>
+   cd wave2vector
+   ```
 
-```bash
-make run
-```
+2. **Install dependencies**
 
-Visit `http://127.0.0.1:8000` to upload a clip and explore similarity results.
+   ```bash
+   # Optional: create and use a virtual environment
+   make install VENV=.venv
+   source .venv/bin/activate
 
-## Upload flow (web UI)
+   # Or install into the current environment
+   make install
+   ```
+
+3. **Run the app**
+
+   ```bash
+   make run
+   ```
+
+4. **Open the UI**
+
+   Visit `http://127.0.0.1:8000` to upload a clip and explore similarity results.
+
+## Using the web UI
 
 1. Open the homepage and upload a `.wav`, `.mp3`, or `.m4a` file.
 2. Optionally add a title for the clip.
-3. Submit the form to save the clip, compute MFCC features, and view waveform/spectrogram output.
-4. Use the clip detail page to review metadata and navigate to nearest neighbors.
+3. Submit the form to compute MFCC features and save waveform/spectrogram images.
+4. Open the clip detail page to see metadata, plots, and nearest neighbors.
 
 ## API examples (curl)
 
@@ -64,6 +79,13 @@ curl "http://127.0.0.1:8000/clips/1/neighbors?k=5"
 - **Ubuntu/Debian:** `sudo apt-get update && sudo apt-get install -y ffmpeg`
 - **Windows (Chocolatey):** `choco install ffmpeg`
 - **Windows (winget):** `winget install --id=Gyan.FFmpeg`
+
+## Possible next steps
+
+- Add a learned embedding model (e.g., VGGish, OpenL3, or a small CNN) for comparison.
+- Store multiple feature types and allow users to switch similarity metrics.
+- Add evaluation utilities (precision@k, confusion matrices) for labeled datasets.
+- Support batch uploads and dataset-level analytics.
 
 ## Troubleshooting
 
