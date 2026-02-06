@@ -116,7 +116,11 @@ async def upload_clip(
         raise HTTPException(status_code=400, detail="Missing filename.")
     extension = Path(file.filename).suffix.lower()
     if extension not in ALLOWED_EXTENSIONS:
-        raise HTTPException(status_code=400, detail="Unsupported file format.")
+        supported = ", ".join(sorted(ALLOWED_EXTENSIONS))
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file extension '{extension}'. Supported formats: {supported}.",
+        )
 
     clip_uuid = uuid4().hex
     file_path = UPLOAD_DIR / f"{clip_uuid}{extension}"
@@ -128,15 +132,28 @@ async def upload_clip(
     except Exception as exc:  # pragma: no cover - defensive against decoder errors
         file_path.unlink(missing_ok=True)
         raise HTTPException(
-            status_code=400,
-            detail="Unable to decode audio file.",
+            status_code=422,
+            detail=(
+                "Unable to decode audio file. If you uploaded mp3/m4a, install ffmpeg "
+                "and try again."
+            ),
         ) from exc
 
-    duration_seconds = float(len(audio) / sr) if sr else 0.0
-    mfcc = librosa.feature.mfcc(y=audio, sr=sr, n_mfcc=20)
-    mfcc_mean = mfcc.mean(axis=1)
-    mfcc_std = mfcc.std(axis=1)
-    vector = np.concatenate([mfcc_mean, mfcc_std]).astype(float)
+    try:
+        duration_seconds = float(len(audio) / sr) if sr else 0.0
+        mfcc = librosa.feature.mfcc(y=audio, sr=sr, n_mfcc=20)
+        mfcc_mean = mfcc.mean(axis=1)
+        mfcc_std = mfcc.std(axis=1)
+        vector = np.concatenate([mfcc_mean, mfcc_std]).astype(float)
+    except Exception as exc:  # pragma: no cover - defensive against analysis errors
+        file_path.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Audio decoding succeeded but feature analysis failed. Ensure ffmpeg is "
+                "installed for mp3/m4a and try a WAV file to validate the pipeline."
+            ),
+        ) from exc
 
     waveform_path = IMAGE_DIR / f"{clip_uuid}_waveform.png"
     plt.figure(figsize=(8, 3))
