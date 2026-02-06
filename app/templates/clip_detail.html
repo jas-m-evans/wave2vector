@@ -10,8 +10,19 @@
     <a href="/">Back</a>
     {% if clip %}
       <h1>{{ clip.filename }}</h1>
-      <p>Sample rate: {{ clip.sr }} Hz</p>
-      <p>Duration: {{ '%.2f'|format(clip.duration) }} seconds</p>
+      <ul class="metadata">
+        <li><strong>ID:</strong> {{ clip.id }}</li>
+        <li><strong>Sample rate:</strong> {{ clip.sr }} Hz</li>
+        <li><strong>Duration:</strong> {{ '%.2f'|format(clip.duration) }} seconds</li>
+        <li><strong>Created:</strong> {{ clip.created_at }}</li>
+      </ul>
+      <form class="neighbors" action="/clips/{{ clip.id }}/neighbors" method="get">
+        <label>
+          Find neighbors (k)
+          <input type="number" name="k" min="1" value="5" />
+        </label>
+        <button type="submit">Find neighbors</button>
+      </form>
       <section class="images">
         <figure>
           <img class="plot" src="{{ clip.waveform_image_path }}" alt="Waveform" />
@@ -23,7 +34,8 @@
         </figure>
       </section>
       <h2>Vector</h2>
-      <pre class="vector">{{ clip.vector }}</pre>
+      <p>First 10 values</p>
+      <pre class="vector">{{ vector_preview }}</pre>
     {% else %}
       <h1>Clip not found</h1>
       <p>Return to the home page to upload a new clip.</p>

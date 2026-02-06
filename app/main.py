@@ -18,7 +18,7 @@ from starlette.requests import Request
 
 from app.db import get_session, init_db
 from app.models import ClipMetadata
-from app.schemas import ClipDetail
+from app.schemas import ClipDetail, ClipListItem
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -53,11 +53,25 @@ SessionDep = Annotated[object, Depends(session_dep)]
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, session: SessionDep):
-    clips = session.exec(select(ClipMetadata)).all()
+    clips = session.exec(select(ClipMetadata).order_by(ClipMetadata.created_at.desc())).all()
     return templates.TemplateResponse(
         "index.html",
         {"request": request, "clips": clips},
     )
+
+
+@app.get("/clips", response_model=list[ClipListItem])
+async def clip_list(session: SessionDep):
+    clips = session.exec(select(ClipMetadata).order_by(ClipMetadata.created_at.desc())).all()
+    return [
+        ClipListItem(
+            id=clip.id,
+            filename=clip.filename,
+            duration=clip.duration,
+            created_at=clip.created_at,
+        )
+        for clip in clips
+    ]
 
 
 @app.get("/clips/{clip_id}", response_class=HTMLResponse)
@@ -69,9 +83,10 @@ async def clip_detail(request: Request, clip_id: int, session: SessionDep):
             {"request": request, "clip": None},
             status_code=404,
         )
+    vector_preview = clip.vector[:10] if clip.vector else []
     return templates.TemplateResponse(
         "clip_detail.html",
-        {"request": request, "clip": clip},
+        {"request": request, "clip": clip, "vector_preview": vector_preview},
     )
 
 

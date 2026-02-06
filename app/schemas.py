@@ -21,3 +21,10 @@ class ClipDetail(BaseModel):
     vector: list[float]
     waveform_image_path: str
     spectrogram_image_path: str
+
+
+class ClipListItem(BaseModel):
+    id: int
+    filename: str
+    duration: float
+    created_at: datetime
