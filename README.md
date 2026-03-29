@@ -1,53 +1,58 @@
 # Wave2Vector Lab
 
-Wave2Vector Lab is a minimal research-friendly prototype for uploading short audio clips, extracting MFCC-based embeddings, and exploring similarity via cosine distance.
+Wave2Vector Lab is a research-friendly web app for uploading audio clips, extracting MFCC-based embeddings, and exploring nearest-neighbor similarity with an interactive UI.
 
-## Why this is useful (academic framing)
+## What it does
 
-This project provides a compact, reproducible pipeline for turning raw audio into feature vectors and visualizations. It can be used to:
+- Upload `.wav`, `.mp3`, or `.m4a` clips.
+- Compute MFCC embeddings and save waveform/spectrogram plots.
+- Show sample-rate quality labels (High quality, Usable, Speech-first, Low fidelity).
+- Play clips directly in the app.
+- Explore nearest neighbors with similarity cards, match bars, and inline playback.
+- Use a one-click demo seeding flow to populate test clips.
+- Visualize playback live on clip pages with a dynamic canvas and real-time metrics:
+  - playback clock
+  - RMS loudness
+  - peak amplitude
+  - spectral centroid
 
-- Demonstrate signal processing concepts (waveforms, STFT spectrograms, MFCCs).
-- Prototype retrieval experiments (nearest neighbor search in embedding space).
-- Serve as a baseline for comparing handcrafted vs. learned audio embeddings.
+## Quick start
 
-## Quick start (step-by-step)
+1. Clone and enter the repo.
 
-1. **Clone and enter the repo**
+```bash
+git clone https://github.com/jas-m-evans/wave2vector.git
+cd wave2vector
+```
 
-   ```bash
-   git clone <repo-url>
-   cd wave2vector
-   ```
+2. Install dependencies.
 
-2. **Install dependencies**
+```bash
+# Recommended: virtual environment
+make install VENV=.venv
+source .venv/bin/activate
 
-   ```bash
-   # Optional: create and use a virtual environment
-   make install VENV=.venv
-   source .venv/bin/activate
+# Alternative: current environment
+make install
+```
 
-   # Or install into the current environment
-   make install
-   ```
+3. Run the app.
 
-3. **Run the app**
+```bash
+make run
+```
 
-   ```bash
-   make run
-   ```
+4. Open the UI at `http://127.0.0.1:8000`.
 
-4. **Open the UI**
+## Web UI workflow
 
-   Visit `http://127.0.0.1:8000` to upload a clip and explore similarity results.
+1. Upload a clip from the homepage.
+2. Optionally click **Load demo clips** for a fast multi-clip setup.
+3. Open clip details to inspect metadata, waveform, spectrogram, and vector summaries.
+4. Press play to view the live visualizer and real-time audio metrics.
+5. Use nearest neighbors to compare clips and audition matches.
 
-## Using the web UI
-
-1. Open the homepage and upload a `.wav`, `.mp3`, or `.m4a` file.
-2. Optionally add a title for the clip.
-3. Submit the form to compute MFCC features and save waveform/spectrogram images.
-4. Open the clip detail page to see metadata, plots, and nearest neighbors.
-
-## API examples (curl)
+## API examples
 
 Upload a file:
 
@@ -55,6 +60,12 @@ Upload a file:
 curl -L -X POST http://127.0.0.1:8000/upload \
   -F "file=@/path/to/clip.wav" \
   -F "title=My demo clip"
+```
+
+Load demo clips:
+
+```bash
+curl -L -X POST http://127.0.0.1:8000/seed-demo
 ```
 
 List clips:
@@ -69,38 +80,42 @@ Get neighbors for a clip:
 curl "http://127.0.0.1:8000/clips/1/neighbors?k=5"
 ```
 
+## Notes on demo seeding
+
+- Demo seeding is idempotent by title.
+- Repeated clicks do not keep adding duplicate demo names.
+- Neighbor responses are deduplicated by filename and keep the closest match.
+
 ## Audio decoding notes
 
-`librosa` can rely on external decoders for certain formats. MP3/M4A support depends on which backend libraries are available in your environment, and many setups require `ffmpeg` for reliable decoding.
+`librosa` may depend on external decoders for certain formats. MP3/M4A support often requires `ffmpeg`.
 
-### Install ffmpeg
+Install ffmpeg:
 
-- **macOS (Homebrew):** `brew install ffmpeg`
-- **Ubuntu/Debian:** `sudo apt-get update && sudo apt-get install -y ffmpeg`
-- **Windows (Chocolatey):** `choco install ffmpeg`
-- **Windows (winget):** `winget install --id=Gyan.FFmpeg`
-
-## Possible next steps
-
-- Add a learned embedding model (e.g., VGGish, OpenL3, or a small CNN) for comparison.
-- Store multiple feature types and allow users to switch similarity metrics.
-- Add evaluation utilities (precision@k, confusion matrices) for labeled datasets.
-- Support batch uploads and dataset-level analytics.
+- macOS (Homebrew): `brew install ffmpeg`
+- Ubuntu/Debian: `sudo apt-get update && sudo apt-get install -y ffmpeg`
+- Windows (Chocolatey): `choco install ffmpeg`
+- Windows (winget): `winget install --id=Gyan.FFmpeg`
 
 ## Troubleshooting
 
-### File uploads but decode fails
+### Upload succeeds but decode fails
 
-If a file uploads successfully but you receive a decode or analysis error:
+1. Install `ffmpeg`.
+2. Retry with a `.wav` clip to isolate decoder issues.
+3. Confirm extension is one of `.wav`, `.mp3`, `.m4a`.
 
-1. Install `ffmpeg` (see above).
-2. Retry the upload, or test with a `.wav` file to confirm the pipeline.
-3. Ensure the file extension is one of `.wav`, `.mp3`, or `.m4a`.
+### No neighbors found
 
-### API returns 404 for neighbors
+You need more than one unique clip in the dataset. Upload another clip or use demo seeding.
 
-If `/clips/{id}/neighbors` returns 404, ensure the clip ID exists by calling `/clips` and using one of the returned IDs.
+### Images or audio do not load
 
-### Images not rendering
+Runtime assets are saved under `./data/`. Confirm the process can write to that directory.
 
-Waveform and spectrogram images are saved under `./data/images`. If they are missing, confirm the server has permission to write to the `data/` directory and restart the app to recreate it.
+## Tech stack
+
+- FastAPI + Jinja templates
+- SQLModel + SQLite
+- Librosa + NumPy
+- Matplotlib

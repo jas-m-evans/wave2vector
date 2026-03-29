@@ -3,11 +3,27 @@
 <head>
   <meta charset="UTF-8" />
   <title>Wave2Vector</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
   <main class="container">
+    <p class="eyebrow">Audio Similarity Lab</p>
     <h1>Wave2Vector</h1>
+
+    {% if seed_status == "created" %}
+      <p class="notice success">Demo clips added. Open a clip and try nearest neighbors.</p>
+    {% elif seed_status == "exists" %}
+      <p class="notice">Demo seeding skipped because clips already exist.</p>
+    {% endif %}
+
+    <section class="quick-start">
+      <h2>Quick start</h2>
+      <p>Skip manual uploads: add demo clips to test similarity immediately.</p>
+      <form action="/seed-demo" method="post">
+        <button type="submit">Load demo clips</button>
+      </form>
+    </section>
 
     <section class="upload">
       <h2>Upload a clip</h2>
@@ -32,19 +48,28 @@
             <tr>
               <th>ID</th>
               <th>Filename</th>
+              <th>Sample Rate</th>
               <th>Duration</th>
+              <th>Preview</th>
               <th>Created</th>
               <th>Details</th>
             </tr>
           </thead>
           <tbody>
-            {% for clip in clips %}
+            {% for row in clip_rows %}
               <tr>
-                <td>{{ clip.id }}</td>
-                <td>{{ clip.filename }}</td>
-                <td>{{ '%.2f'|format(clip.duration) }}s</td>
-                <td>{{ clip.created_at }}</td>
-                <td><a href="/clips/{{ clip.id }}">View</a></td>
+                <td>{{ row.clip.id }}</td>
+                <td>{{ row.clip.filename }}</td>
+                <td>
+                  {{ row.clip.sr }} Hz
+                  <span class="sr-quality">({{ row.sample_rate.label }})</span>
+                </td>
+                <td>{{ '%.2f'|format(row.clip.duration) }}s</td>
+                <td>
+                  <audio controls preload="none" src="{{ row.clip.path }}"></audio>
+                </td>
+                <td>{{ row.clip.created_at }}</td>
+                <td><a href="/clips/{{ row.clip.id }}">View</a></td>
               </tr>
             {% endfor %}
           </tbody>

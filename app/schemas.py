@@ -33,6 +33,7 @@ class ClipListItem(BaseModel):
 class ClipNeighbor(BaseModel):
     id: int
     filename: str
+    path: str
     distance: float
 
 

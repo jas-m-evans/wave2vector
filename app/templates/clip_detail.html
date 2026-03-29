@@ -3,19 +3,40 @@
 <head>
   <meta charset="UTF-8" />
   <title>Clip Detail</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
   <main class="container">
-    <a href="/">Back</a>
+    <a class="back-link" href="/">Back</a>
     {% if clip %}
+      <p class="eyebrow">Clip Inspector</p>
       <h1>{{ clip.filename }}</h1>
       <ul class="metadata">
         <li><strong>ID:</strong> {{ clip.id }}</li>
-        <li><strong>Sample rate:</strong> {{ clip.sr }} Hz</li>
+        <li>
+          <strong>Sample rate:</strong> {{ clip.sr }} Hz
+          <span class="sr-quality">({{ sample_rate.label }})</span>
+          <br />
+          <span class="metadata-note">{{ sample_rate.note }}</span>
+        </li>
         <li><strong>Duration:</strong> {{ '%.2f'|format(clip.duration) }} seconds</li>
         <li><strong>Created:</strong> {{ clip.created_at }}</li>
       </ul>
+      <section class="player-card">
+        <h2>Play clip</h2>
+        <audio id="current-clip-audio" controls preload="metadata" src="{{ clip.path }}"></audio>
+        <div class="live-visualizer">
+          <canvas id="viz-canvas" aria-label="Live waveform and spectrum visualization"></canvas>
+          <div class="viz-metrics" aria-live="polite">
+            <div><span class="viz-label">Time</span><span id="metric-time">0:00 / 0:00</span></div>
+            <div><span class="viz-label">RMS</span><span id="metric-rms">0.000</span></div>
+            <div><span class="viz-label">Peak</span><span id="metric-peak">0.000</span></div>
+            <div><span class="viz-label">Centroid</span><span id="metric-centroid">0 Hz</span></div>
+          </div>
+          <p class="metadata-note">Live signal view while playback runs. Higher RMS and Peak indicate more intensity.</p>
+        </div>
+      </section>
       <section class="images">
         <figure>
           <img class="plot" src="{{ clip.waveform_image_path }}" alt="Waveform" />
@@ -29,6 +50,31 @@
       <h2>Vector</h2>
       <p>First 10 values</p>
       <pre class="vector">{{ vector_preview }}</pre>
+
+      <h3>Vector summary</h3>
+      <ul class="metadata">
+        <li><strong>Norm:</strong> {{ '%.3f'|format(vector_summary.norm) }}</li>
+        <li><strong>Mean:</strong> {{ '%.3f'|format(vector_summary.mean) }}</li>
+        <li><strong>Std dev:</strong> {{ '%.3f'|format(vector_summary.std) }}</li>
+        <li><strong>Min / Max:</strong> {{ '%.3f'|format(vector_summary.min) }} / {{ '%.3f'|format(vector_summary.max) }}</li>
+      </ul>
+
+      <h3>Most influential components</h3>
+      <p class="metadata-note">These dimensions dominate this clip's embedding and drive similarity.</p>
+      <ul class="component-list">
+        {% for component in vector_summary.top_components %}
+          <li class="component-item">
+            <div class="component-header">
+              <span>{{ component.name }}</span>
+              <strong>{{ '%.3f'|format(component.value) }}</strong>
+            </div>
+            <div class="component-bar-track">
+              <div class="component-bar-fill" style="width: {{ '%.2f'|format(component.magnitude_pct) }}%;"></div>
+            </div>
+          </li>
+        {% endfor %}
+      </ul>
+
       <section class="neighbors">
         <h3>Nearest neighbors</h3>
         <div class="neighbors-controls">
@@ -46,6 +92,173 @@
   </main>
   {% if clip %}
   <script>
+    const mainAudio = document.getElementById("current-clip-audio");
+    const vizCanvas = document.getElementById("viz-canvas");
+    const metricTime = document.getElementById("metric-time");
+    const metricRms = document.getElementById("metric-rms");
+    const metricPeak = document.getElementById("metric-peak");
+    const metricCentroid = document.getElementById("metric-centroid");
+
+    let audioCtx = null;
+    let analyser = null;
+    let sourceNode = null;
+    let rafId = null;
+    let timeData = null;
+    let freqData = null;
+
+    const formatClock = (seconds) => {
+      const value = Number.isFinite(seconds) ? Math.max(0, seconds) : 0;
+      const mins = Math.floor(value / 60);
+      const secs = Math.floor(value % 60);
+      return `${mins}:${String(secs).padStart(2, "0")}`;
+    };
+
+    const resizeCanvas = () => {
+      if (!vizCanvas) {
+        return;
+      }
+      const rect = vizCanvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      vizCanvas.width = Math.max(1, Math.floor(rect.width * dpr));
+      vizCanvas.height = Math.max(1, Math.floor(rect.height * dpr));
+    };
+
+    const initAudioGraph = async () => {
+      if (!mainAudio || analyser) {
+        return;
+      }
+      const Context = window.AudioContext || window.webkitAudioContext;
+      if (!Context) {
+        return;
+      }
+      audioCtx = new Context();
+      sourceNode = audioCtx.createMediaElementSource(mainAudio);
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0.82;
+      sourceNode.connect(analyser);
+      analyser.connect(audioCtx.destination);
+      timeData = new Uint8Array(analyser.fftSize);
+      freqData = new Uint8Array(analyser.frequencyBinCount);
+    };
+
+    const drawVisualizer = () => {
+      if (!analyser || !vizCanvas) {
+        return;
+      }
+
+      const ctx = vizCanvas.getContext("2d");
+      if (!ctx) {
+        return;
+      }
+
+      const w = vizCanvas.width;
+      const h = vizCanvas.height;
+      const dpr = window.devicePixelRatio || 1;
+
+      analyser.getByteTimeDomainData(timeData);
+      analyser.getByteFrequencyData(freqData);
+
+      let rmsAcc = 0;
+      let peak = 0;
+      for (let i = 0; i < timeData.length; i += 1) {
+        const sample = (timeData[i] - 128) / 128;
+        rmsAcc += sample * sample;
+        peak = Math.max(peak, Math.abs(sample));
+      }
+      const rms = Math.sqrt(rmsAcc / timeData.length);
+
+      let weighted = 0;
+      let magnitude = 0;
+      const nyquist = audioCtx ? audioCtx.sampleRate / 2 : 22050;
+      for (let i = 0; i < freqData.length; i += 1) {
+        const amp = freqData[i];
+        const freq = (i / freqData.length) * nyquist;
+        weighted += freq * amp;
+        magnitude += amp;
+      }
+      const centroid = magnitude > 0 ? weighted / magnitude : 0;
+
+      const bg = ctx.createLinearGradient(0, 0, w, h);
+      bg.addColorStop(0, `rgba(11,101,165,${0.25 + rms * 0.5})`);
+      bg.addColorStop(1, `rgba(241,76,36,${0.16 + peak * 0.4})`);
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, w, h);
+
+      const lineY = h * 0.55;
+      ctx.beginPath();
+      ctx.lineWidth = 2.5 * dpr;
+      ctx.strokeStyle = "rgba(255,255,255,0.95)";
+      for (let i = 0; i < timeData.length; i += 1) {
+        const x = (i / (timeData.length - 1)) * w;
+        const normalized = (timeData[i] - 128) / 128;
+        const y = lineY + normalized * h * 0.28;
+        if (i === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+      }
+      ctx.stroke();
+
+      const barCount = 54;
+      const band = Math.max(1, Math.floor(freqData.length / barCount));
+      const gap = 3 * dpr;
+      const barWidth = (w - gap * (barCount - 1)) / barCount;
+      for (let i = 0; i < barCount; i += 1) {
+        const offset = i * band;
+        const value = freqData[offset] / 255;
+        const barHeight = value * h * 0.36;
+        const x = i * (barWidth + gap);
+        const y = h - barHeight - (10 * dpr);
+        ctx.fillStyle = `rgba(255,255,255,${0.15 + value * 0.8})`;
+        ctx.fillRect(x, y, barWidth, barHeight);
+      }
+
+      metricRms.textContent = rms.toFixed(3);
+      metricPeak.textContent = peak.toFixed(3);
+      metricCentroid.textContent = `${Math.round(centroid)} Hz`;
+      metricTime.textContent = `${formatClock(mainAudio.currentTime)} / ${formatClock(mainAudio.duration)}`;
+
+      if (!mainAudio.paused) {
+        rafId = window.requestAnimationFrame(drawVisualizer);
+      }
+    };
+
+    const startVisualizer = async () => {
+      await initAudioGraph();
+      if (!audioCtx || !analyser) {
+        return;
+      }
+      if (audioCtx.state === "suspended") {
+        await audioCtx.resume();
+      }
+      if (rafId) {
+        window.cancelAnimationFrame(rafId);
+      }
+      drawVisualizer();
+    };
+
+    const stopVisualizer = () => {
+      if (rafId) {
+        window.cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+      metricTime.textContent = `${formatClock(mainAudio.currentTime)} / ${formatClock(mainAudio.duration)}`;
+    };
+
+    resizeCanvas();
+    window.addEventListener("resize", resizeCanvas);
+    if (mainAudio) {
+      mainAudio.addEventListener("play", startVisualizer);
+      mainAudio.addEventListener("pause", stopVisualizer);
+      mainAudio.addEventListener("ended", stopVisualizer);
+      mainAudio.addEventListener("timeupdate", () => {
+        metricTime.textContent = `${formatClock(mainAudio.currentTime)} / ${formatClock(mainAudio.duration)}`;
+      });
+      metricTime.textContent = `${formatClock(0)} / ${formatClock(mainAudio.duration)}`;
+    }
+
     const neighborsList = document.getElementById("neighbors-list");
     const neighborsStatus = document.getElementById("neighbors-status");
     const neighborsInput = document.getElementById("neighbors-k");
@@ -60,7 +273,29 @@
       neighborsStatus.textContent = "";
       neighbors.forEach((neighbor) => {
         const item = document.createElement("li");
-        item.textContent = `${neighbor.filename} (ID ${neighbor.id}) — distance ${neighbor.distance.toFixed(4)}`;
+        item.className = "neighbor-card";
+
+        const similarity = Math.max(0, 1 - Number(neighbor.distance || 0));
+        const similarityPct = (similarity * 100).toFixed(1);
+
+        item.innerHTML = `
+          <div class="neighbor-head">
+            <a href="/clips/${neighbor.id}">${neighbor.filename}</a>
+            <span class="neighbor-score">${similarityPct}% match</span>
+          </div>
+          <div class="neighbor-bar-track">
+            <div class="neighbor-bar-fill" style="width:${similarityPct}%"></div>
+          </div>
+          <p class="neighbor-metrics">ID ${neighbor.id} - distance ${Number(neighbor.distance).toFixed(4)}</p>
+        `;
+
+        if (neighbor.path) {
+          const audio = document.createElement("audio");
+          audio.controls = true;
+          audio.preload = "none";
+          audio.src = neighbor.path;
+          item.appendChild(audio);
+        }
         neighborsList.appendChild(item);
       });
     };
