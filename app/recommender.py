@@ -258,7 +258,7 @@ def parse_natural_language_nudge(text: str) -> dict[str, float]:
     energy_up_words = ["more energy", "energetic", "upbeat", "pumped", "intense", "bangers"]
     energy_down_words = ["chill", "calm", "mellow", "relax", "quiet", "laid-back"]
     mood_up_words = ["happier", "brighter", "feel-good", "uplifting", "joyful"]
-    mood_down_words = ["darker", "darker", "melancholic", "sad", "moody", "emotional", "brooding"]
+    mood_down_words = ["darker", "melancholic", "sad", "moody", "emotional", "brooding"]
     novelty_up_words = ["weirder", "unexpected", "left turn", "adventurous", "eclectic", "obscure"]
     novelty_down_words = ["safer", "familiar", "mainstream", "easy", "comfortable"]
 

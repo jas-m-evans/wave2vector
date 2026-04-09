@@ -20,6 +20,7 @@ from starlette.requests import Request
 from app.db import get_session, init_db
 from app.models import ChatMessage, ClipMetadata, TasteBridgeRoom
 from app.schemas import (
+    BridgeRecoSchema,
     ChatMessageSchema,
     ClipDetail,
     ClipListItem,
@@ -37,6 +38,10 @@ from app.schemas import (
     RoomStateSchema,
     RoomTokenResponse,
 )
+from app import commentary as commentary_mod
+from app import recommender as rec_mod
+from app import spotify as spotify_mod
+from app.livekit_utils import create_token, get_livekit_url
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -422,11 +427,6 @@ async def clip_neighbors(
 # Taste Bridge — room management
 # ---------------------------------------------------------------------------
 
-from app import commentary as commentary_mod  # noqa: E402
-from app import recommender as rec_mod  # noqa: E402
-from app import spotify as spotify_mod  # noqa: E402
-from app.livekit_utils import create_token, get_livekit_url  # noqa: E402
-
 
 def _room_state_from_db(room: TasteBridgeRoom) -> RoomStateSchema:
     """Reconstruct a RoomStateSchema from the DB snapshot."""
@@ -434,8 +434,6 @@ def _room_state_from_db(room: TasteBridgeRoom) -> RoomStateSchema:
     knobs_data = s.get("knobs", {})
     bridge_data = s.get("bridge_reco")
     commentary_data = s.get("commentary")
-
-    from app.schemas import BridgeRecoSchema  # local import avoids circular
 
     return RoomStateSchema(
         room_id=room.room_id,
@@ -639,8 +637,6 @@ async def get_recommendation(room_id: str, body: RecommendRequest, session: Sess
     result, commentary = _build_recommend_and_commentary(room, knobs, body.command)
     if result is None:
         raise HTTPException(status_code=400, detail="Need at least two profiles to recommend.")
-
-    from app.schemas import BridgeRecoSchema  # local import
 
     bridge_schema = BridgeRecoSchema(
         track_id=result.track_id,
