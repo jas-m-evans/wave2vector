@@ -9,3 +9,6 @@ sqlmodel
 soundfile
 pytest
 httpx
+pyjwt
+python-dotenv
+itsdangerous

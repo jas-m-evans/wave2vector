@@ -18,8 +18,25 @@ from sqlmodel import select
 from starlette.requests import Request
 
 from app.db import get_session, init_db
-from app.models import ClipMetadata
-from app.schemas import ClipDetail, ClipListItem, ClipNeighbor, ClipNeighborsResponse
+from app.models import ChatMessage, ClipMetadata, TasteBridgeRoom
+from app.schemas import (
+    ChatMessageSchema,
+    ClipDetail,
+    ClipListItem,
+    ClipNeighbor,
+    ClipNeighborsResponse,
+    CommentarySchema,
+    KnobsSchema,
+    KnobsUpdateRequest,
+    PostChatRequest,
+    ProfileSetRequest,
+    RecommendRequest,
+    RecommendResponse,
+    RoomCreateRequest,
+    RoomJoinRequest,
+    RoomStateSchema,
+    RoomTokenResponse,
+)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -399,6 +416,394 @@ async def clip_neighbors(
 
     neighbors_sorted = sorted(best_by_name.values(), key=lambda item: item.distance)[:k]
     return ClipNeighborsResponse(clip_id=clip_id, k=k, neighbors=neighbors_sorted)
+
+
+# ---------------------------------------------------------------------------
+# Taste Bridge — room management
+# ---------------------------------------------------------------------------
+
+from app import commentary as commentary_mod  # noqa: E402
+from app import recommender as rec_mod  # noqa: E402
+from app import spotify as spotify_mod  # noqa: E402
+from app.livekit_utils import create_token, get_livekit_url  # noqa: E402
+
+
+def _room_state_from_db(room: TasteBridgeRoom) -> RoomStateSchema:
+    """Reconstruct a RoomStateSchema from the DB snapshot."""
+    s = room.state or {}
+    knobs_data = s.get("knobs", {})
+    bridge_data = s.get("bridge_reco")
+    commentary_data = s.get("commentary")
+
+    from app.schemas import BridgeRecoSchema  # local import avoids circular
+
+    return RoomStateSchema(
+        room_id=room.room_id,
+        host_identity=room.host_identity,
+        host_display_name=room.host_display_name,
+        guest_identity=room.guest_identity,
+        guest_display_name=room.guest_display_name,
+        participants=s.get("participants", []),
+        spotify_connected=s.get("spotify_connected", False),
+        taste_profile_ready=s.get("taste_profile_ready", False),
+        knobs=KnobsSchema(**knobs_data) if knobs_data else KnobsSchema(),
+        compatibility=s.get("compatibility", 0.0),
+        bridge_reco=BridgeRecoSchema(**bridge_data) if bridge_data else None,
+        commentary=CommentarySchema(**commentary_data) if commentary_data else None,
+        previous_track_id=s.get("previous_track_id"),
+    )
+
+
+def _save_room_state(session, room: TasteBridgeRoom, patch: dict) -> TasteBridgeRoom:
+    """Merge patch into room.state and persist."""
+    state = dict(room.state or {})
+    state.update(patch)
+    room.state = state
+    room.updated_at = datetime.now(timezone.utc)
+    session.add(room)
+    session.commit()
+    session.refresh(room)
+    return room
+
+
+def _build_recommend_and_commentary(
+    room: TasteBridgeRoom,
+    knobs: rec_mod.Knobs,
+    command: str | None = None,
+) -> tuple[rec_mod.BridgeResult | None, commentary_mod.CommentaryResult | None]:
+    """Run the recommendation + commentary pipeline, returns (result, commentary)."""
+    state = room.state or {}
+    profile_a = state.get("profile_a", {})
+    profile_b = state.get("profile_b", {})
+
+    if not profile_a or not profile_b:
+        # Fall back to demo profiles derived from display names
+        profile_a = spotify_mod.demo_profile_from_name(room.host_display_name)
+        if room.guest_display_name:
+            profile_b = spotify_mod.demo_profile_from_name(room.guest_display_name)
+        else:
+            profile_b = {}
+
+    if not profile_b:
+        return None, None
+
+    # Use MOCK_CANDIDATES for now; real Spotify candidates slot in here when
+    # access tokens are present.
+    candidates = spotify_mod.MOCK_CANDIDATES
+
+    previous_id = state.get("previous_track_id")
+    result = rec_mod.recommend_bridge(
+        profile_a=profile_a,
+        profile_b=profile_b,
+        candidates=candidates,
+        knobs=knobs,
+        previous_id=previous_id,
+    )
+    if result is None:
+        return None, None
+
+    commentary = commentary_mod.generate_commentary(
+        profile_a=profile_a,
+        profile_b=profile_b,
+        name_a=room.host_display_name,
+        name_b=room.guest_display_name or "Guest",
+        result=result,
+    )
+    return result, commentary
+
+
+@app.post("/api/rooms", response_model=RoomTokenResponse)
+async def create_room(body: RoomCreateRequest, session: SessionDep):
+    """Create a new Taste Bridge room and return a LiveKit token for the host."""
+    room_id = uuid4().hex[:12]
+    identity = f"host-{uuid4().hex[:8]}"
+    now = datetime.now(timezone.utc)
+
+    # Seed demo profiles immediately so the room is interesting from the start.
+    host_profile = spotify_mod.demo_profile_from_name(body.display_name)
+
+    room = TasteBridgeRoom(
+        room_id=room_id,
+        host_identity=identity,
+        host_display_name=body.display_name,
+        created_at=now,
+        updated_at=now,
+        state={
+            "profile_a": host_profile,
+            "knobs": KnobsSchema().model_dump(),
+            "compatibility": 0.0,
+            "taste_profile_ready": False,
+            "spotify_connected": False,
+        },
+    )
+    session.add(room)
+    session.commit()
+
+    token = create_token(
+        room_name=room_id,
+        identity=identity,
+        display_name=body.display_name,
+        metadata={"role": "host", "room_id": room_id},
+    )
+
+    return RoomTokenResponse(
+        room_id=room_id,
+        livekit_token=token,
+        livekit_url=get_livekit_url(),
+        restored=False,
+        state=_room_state_from_db(room),
+    )
+
+
+@app.post("/api/rooms/{room_id}/join", response_model=RoomTokenResponse)
+async def join_room(room_id: str, body: RoomJoinRequest, session: SessionDep):
+    """Join an existing room as guest; restores previous state if available."""
+    room = session.get(TasteBridgeRoom, room_id)
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found.")
+
+    identity = f"guest-{uuid4().hex[:8]}"
+    guest_profile = spotify_mod.demo_profile_from_name(body.display_name)
+
+    # Calculate compatibility now that we have both profiles.
+    profile_a = (room.state or {}).get("profile_a", {})
+    compat = spotify_mod.compute_compatibility(profile_a, guest_profile) if profile_a else 0.0
+
+    room.guest_identity = identity
+    room.guest_display_name = body.display_name
+    patch = {
+        "profile_b": guest_profile,
+        "compatibility": round(compat, 3),
+        "taste_profile_ready": bool(profile_a),
+    }
+    room = _save_room_state(session, room, patch)
+
+    was_restored = bool((room.state or {}).get("bridge_reco"))
+
+    token = create_token(
+        room_name=room_id,
+        identity=identity,
+        display_name=body.display_name,
+        metadata={"role": "guest", "room_id": room_id},
+    )
+
+    return RoomTokenResponse(
+        room_id=room_id,
+        livekit_token=token,
+        livekit_url=get_livekit_url(),
+        restored=was_restored,
+        state=_room_state_from_db(room),
+    )
+
+
+@app.get("/api/rooms/{room_id}", response_model=RoomStateSchema)
+async def get_room_state(room_id: str, session: SessionDep):
+    room = session.get(TasteBridgeRoom, room_id)
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found.")
+    return _room_state_from_db(room)
+
+
+@app.put("/api/rooms/{room_id}/knobs")
+async def update_knobs(room_id: str, body: KnobsUpdateRequest, session: SessionDep):
+    """Update preference knobs and persist."""
+    room = session.get(TasteBridgeRoom, room_id)
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found.")
+    _save_room_state(session, room, {"knobs": body.knobs.model_dump()})
+    return {"ok": True}
+
+
+@app.post("/api/rooms/{room_id}/recommend", response_model=RecommendResponse)
+async def get_recommendation(room_id: str, body: RecommendRequest, session: SessionDep):
+    """Recompute the bridge recommendation.  Handles slash commands + free text."""
+    room = session.get(TasteBridgeRoom, room_id)
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found.")
+
+    state = room.state or {}
+    knobs = rec_mod.Knobs.from_dict(state.get("knobs", {}))
+
+    # Apply slash command knob adjustments.
+    if body.command and body.command != "/why":
+        knobs = rec_mod.apply_slash_command(knobs, body.command)
+
+    # Apply natural language nudge.
+    if body.free_text:
+        nudge = rec_mod.parse_natural_language_nudge(body.free_text)
+        if nudge:
+            updated = knobs.to_dict()
+            updated.update(nudge)
+            knobs = rec_mod.Knobs.from_dict(updated)
+
+    result, commentary = _build_recommend_and_commentary(room, knobs, body.command)
+    if result is None:
+        raise HTTPException(status_code=400, detail="Need at least two profiles to recommend.")
+
+    from app.schemas import BridgeRecoSchema  # local import
+
+    bridge_schema = BridgeRecoSchema(
+        track_id=result.track_id,
+        track_name=result.track_name,
+        artist=result.artist,
+        album=result.album,
+        album_art=result.album_art,
+        preview_url=result.preview_url,
+        scores={k: v for k, v in result.scores.__dict__.items()},
+        target_profile=result.target_profile,
+        knobs_applied=result.knobs_applied,
+    )
+    commentary_schema = CommentarySchema(
+        shared_vibe=commentary.shared_vibe,
+        biggest_contrast=commentary.biggest_contrast,
+        bridge_reason=commentary.bridge_reason,
+        confidence=commentary.confidence,
+        confidence_label=commentary.confidence_label,
+        raw_scores=commentary.raw_scores,
+    )
+
+    # Persist updated state.
+    _save_room_state(
+        session,
+        room,
+        {
+            "knobs": knobs.to_dict(),
+            "bridge_reco": bridge_schema.model_dump(),
+            "commentary": commentary_schema.model_dump(),
+            "previous_track_id": result.track_id,
+        },
+    )
+
+    # Build a friendly system message for the chat.
+    cmd = body.command or ""
+    if cmd == "/why":
+        system_message = commentary.bridge_reason
+    elif cmd == "/next":
+        system_message = f"Shuffled! How about **{result.track_name}** by {result.artist}?"
+    elif body.free_text:
+        system_message = (
+            f'Got it — nudging toward "{body.free_text}". '
+            f"Trying **{result.track_name}** by {result.artist}."
+        )
+    else:
+        system_message = (
+            f"Bridge updated: **{result.track_name}** by {result.artist} "
+            f"({commentary.confidence_label} match, {round(commentary.confidence * 100)}%)"
+        )
+
+    return RecommendResponse(
+        bridge_reco=bridge_schema,
+        commentary=commentary_schema,
+        knobs=KnobsSchema(**knobs.to_dict()),
+        system_message=system_message,
+    )
+
+
+@app.post("/api/rooms/{room_id}/profile")
+async def set_profile(room_id: str, body: ProfileSetRequest, session: SessionDep):
+    """Store a participant's taste profile (from Spotify or demo mode)."""
+    room = session.get(TasteBridgeRoom, room_id)
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found.")
+
+    state = room.state or {}
+    is_host = not room.guest_identity
+
+    patch_key = "profile_a" if is_host else "profile_b"
+    patch = {patch_key: body.taste_profile}
+
+    # Recompute compatibility if we now have both profiles.
+    if "profile_a" in state and "profile_b" in state:
+        compat = spotify_mod.compute_compatibility(state["profile_a"], state["profile_b"])
+        patch["compatibility"] = round(compat, 3)
+        patch["taste_profile_ready"] = True
+
+    _save_room_state(session, room, patch)
+    return {"ok": True}
+
+
+@app.post("/api/rooms/{room_id}/chat", response_model=ChatMessageSchema)
+async def post_chat(room_id: str, body: PostChatRequest, session: SessionDep):
+    """Persist a chat message (user or system)."""
+    room = session.get(TasteBridgeRoom, room_id)
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found.")
+
+    msg = ChatMessage(
+        room_id=room_id,
+        sender_identity=body.sender_identity,
+        display_name=body.display_name,
+        content=body.content,
+        timestamp=datetime.now(timezone.utc),
+        is_system=body.is_system,
+    )
+    session.add(msg)
+    session.commit()
+    session.refresh(msg)
+
+    return ChatMessageSchema(
+        id=msg.id,
+        sender_identity=msg.sender_identity,
+        display_name=msg.display_name,
+        content=msg.content,
+        timestamp=msg.timestamp,
+        is_system=msg.is_system,
+    )
+
+
+@app.get("/api/rooms/{room_id}/chat", response_model=list[ChatMessageSchema])
+async def get_chat(room_id: str, session: SessionDep, limit: int = Query(50, ge=1, le=200)):
+    """Return recent chat history for a room."""
+    msgs = session.exec(
+        select(ChatMessage)
+        .where(ChatMessage.room_id == room_id)
+        .order_by(ChatMessage.timestamp.desc())
+        .limit(limit)
+    ).all()
+    return [
+        ChatMessageSchema(
+            id=m.id,
+            sender_identity=m.sender_identity,
+            display_name=m.display_name,
+            content=m.content,
+            timestamp=m.timestamp,
+            is_system=m.is_system,
+        )
+        for m in reversed(msgs)
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Room UI page
+# ---------------------------------------------------------------------------
+
+
+@app.get("/room/{room_id}", response_class=HTMLResponse)
+async def room_page(request: Request, room_id: str, session: SessionDep):
+    room = session.get(TasteBridgeRoom, room_id)
+    if not room:
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            {
+                "clips": [],
+                "clip_rows": [],
+                "seed_status": None,
+                "error": f"Room '{room_id}' not found.",
+            },
+            status_code=404,
+        )
+    is_demo = spotify_mod.is_demo_mode()
+    return templates.TemplateResponse(
+        request,
+        "room.html",
+        {
+            "room_id": room_id,
+            "host_display_name": room.host_display_name,
+            "livekit_url": get_livekit_url(),
+            "is_demo": is_demo,
+        },
+    )
 
 
 app.mount("/data", StaticFiles(directory=DATA_DIR, check_dir=False), name="data")

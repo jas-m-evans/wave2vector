@@ -16,9 +16,28 @@
     {% elif seed_status == "exists" %}
       <p class="notice">Demo seeding skipped because clips already exist.</p>
     {% endif %}
+    {% if error is defined and error %}
+      <p class="notice error">{{ error }}</p>
+    {% endif %}
+
+    <section class="taste-bridge-entry">
+      <div class="tb-entry-header">
+        <span class="tb-badge">✨ New</span>
+        <h2>Taste Bridge Chat</h2>
+      </div>
+      <p>Start a shared room with another listener. The system finds music that bridges both of your tastes in real time — and you can steer it with chat commands.</p>
+      <form id="tb-create-form" class="tb-create-form">
+        <label>
+          Your name
+          <input type="text" id="tb-display-name" name="display_name" placeholder="e.g. Alex" required maxlength="40" />
+        </label>
+        <button type="submit" class="btn-primary">Start a room</button>
+      </form>
+      <p class="metadata-note">No Spotify account required — demo mode uses generated taste profiles. Connect Spotify later for real recommendations.</p>
+    </section>
 
     <section class="quick-start">
-      <h2>Quick start</h2>
+      <h2>Audio Lab — Quick start</h2>
       <p>Skip manual uploads: add demo clips to test similarity immediately.</p>
       <form action="/seed-demo" method="post">
         <button type="submit">Load demo clips</button>
@@ -79,5 +98,32 @@
       {% endif %}
     </section>
   </main>
+  <script>
+    document.getElementById("tb-create-form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const name = document.getElementById("tb-display-name").value.trim();
+      if (!name) return;
+      const btn = e.target.querySelector("button[type=submit]");
+      btn.disabled = true;
+      btn.textContent = "Creating…";
+      try {
+        const resp = await fetch("/api/rooms", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ display_name: name }),
+        });
+        if (!resp.ok) throw new Error("Failed to create room");
+        const data = await resp.json();
+        // Store token for the room page
+        sessionStorage.setItem(`lk_token_${data.room_id}`, data.livekit_token);
+        sessionStorage.setItem(`lk_identity_${data.room_id}`, name);
+        window.location.href = `/room/${data.room_id}`;
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = "Start a room";
+        alert("Could not create room. Please try again.");
+      }
+    });
+  </script>
 </body>
 </html>
