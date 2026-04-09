@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Taste Bridge — Room {{ room_id }}</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/static/styles.css" />
+  <!-- LiveKit Client SDK via CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client@2/dist/livekit-client.umd.min.js"></script>
+</head>
+<body class="room-body">
+
+  <!-- ── Header ────────────────────────────────────────────────────── -->
+  <header class="room-header">
+    <div class="room-header-left">
+      <a class="back-link" href="/">← Home</a>
+      <span class="room-label">🎵 Taste Bridge</span>
+      <span class="room-id-badge">Room: <code>{{ room_id }}</code></span>
+    </div>
+    <div class="room-header-right">
+      <div id="participants-bar" class="participants-bar">
+        <span id="participant-a" class="participant-chip chip-host">{{ host_display_name }}</span>
+        <span class="vs-dot">⟷</span>
+        <span id="participant-b" class="participant-chip chip-guest">Waiting…</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Compatibility bar ─────────────────────────────────────────── -->
+  <div class="compat-strip">
+    <span class="compat-label">Compatibility</span>
+    <div class="compat-bar-track">
+      <div id="compat-bar" class="compat-bar-fill" style="width: 0%"></div>
+    </div>
+    <span id="compat-pct" class="compat-pct">—</span>
+  </div>
+
+  <!-- ── Join banner (shown to second user) ────────────────────────── -->
+  <div id="join-banner" class="join-banner hidden">
+    <form id="join-form" class="join-form">
+      <p>You've been invited to this Taste Bridge room.</p>
+      <label>Your name <input type="text" id="join-name" placeholder="e.g. Taylor" required maxlength="40" /></label>
+      <button type="submit" class="btn-primary">Join room</button>
+    </form>
+  </div>
+
+  <!-- ── Restored banner ───────────────────────────────────────────── -->
+  <div id="restored-banner" class="notice success hidden" role="status">
+    ✅ Welcome back — your room state was restored.
+  </div>
+
+  <!-- ── Main layout ───────────────────────────────────────────────── -->
+  <div class="room-layout">
+
+    <!-- Left: recommendation + commentary -->
+    <section class="main-panel" aria-label="Bridge recommendation">
+
+      <!-- Loading state -->
+      <div id="reco-loading" class="reco-loading hidden">
+        <div class="spinner"></div>
+        <p>Computing your taste bridge…</p>
+      </div>
+
+      <!-- Empty state -->
+      <div id="reco-empty" class="reco-empty">
+        <p class="eyebrow">Waiting for both listeners</p>
+        <h2>Share this room link with a friend</h2>
+        <div class="share-link-box">
+          <input id="share-url" type="text" readonly />
+          <button type="button" id="copy-link-btn" class="btn-secondary">Copy link</button>
+        </div>
+        <p class="metadata-note">Once they join, we'll compute your shared taste bridge.</p>
+      </div>
+
+      <!-- Recommendation card -->
+      <div id="reco-card" class="reco-card hidden">
+
+        <div class="insight-cards">
+          <div class="insight-card">
+            <p class="insight-label">Shared Vibe</p>
+            <p id="shared-vibe" class="insight-text">—</p>
+          </div>
+          <div class="insight-card insight-contrast">
+            <p class="insight-label">Biggest Contrast</p>
+            <p id="biggest-contrast" class="insight-text">—</p>
+          </div>
+        </div>
+
+        <div class="bridge-track-card">
+          <div class="bridge-track-art">
+            <img id="track-art" src="" alt="" class="hidden" />
+            <div id="track-art-placeholder" class="track-art-placeholder">🎵</div>
+          </div>
+          <div class="bridge-track-info">
+            <p class="bridge-eyebrow">Bridge Recommendation</p>
+            <h2 id="track-name" class="track-name">—</h2>
+            <p id="track-artist" class="track-artist">—</p>
+            <p id="track-album" class="track-album"></p>
+          </div>
+        </div>
+
+        <div class="why-card">
+          <p class="insight-label">Why This Track</p>
+          <p id="bridge-reason" class="insight-text">—</p>
+        </div>
+
+        <div class="confidence-row">
+          <span class="confidence-label-text">Confidence</span>
+          <div class="confidence-bar-track">
+            <div id="confidence-bar" class="confidence-bar-fill" style="width: 0%"></div>
+          </div>
+          <span id="confidence-text" class="confidence-text">—</span>
+        </div>
+
+        <div class="score-grid" id="score-grid" aria-label="Fit scores"></div>
+
+      </div>
+
+      <!-- Action bar -->
+      <div id="action-bar" class="action-bar hidden">
+        <button class="action-btn" data-cmd="/next" title="Different track">🔀 Next</button>
+        <button class="action-btn" data-cmd="/balanced" title="Equal weight to both">⚖️ Balanced</button>
+        <button class="action-btn" data-cmd="/more-me" title="Lean toward host taste">🎯 More me</button>
+        <button class="action-btn" data-cmd="/more-them" title="Lean toward guest taste">🔁 More them</button>
+        <button class="action-btn" data-cmd="/weirder" title="More adventurous picks">🌀 Weirder</button>
+        <button class="action-btn" data-cmd="/safer" title="More mainstream picks">🛟 Safer</button>
+        <button class="action-btn" data-cmd="/moodier" title="Darker, more emotional">🌙 Moodier</button>
+        <button class="action-btn" data-cmd="/more-energy" title="Higher energy">⚡ More energy</button>
+        <button class="action-btn" data-cmd="/why" title="Explain the pick">❓ Why?</button>
+      </div>
+
+    </section>
+
+    <!-- Right: chat -->
+    <section class="chat-panel" aria-label="Live chat">
+      <div class="chat-header">
+        <span class="chat-title">💬 Live Chat</span>
+        <span id="lk-status" class="lk-status lk-disconnected">● Offline</span>
+      </div>
+
+      <ul id="chat-list" class="chat-list" role="log" aria-live="polite" aria-label="Chat messages">
+        <li class="chat-msg system-msg">
+          <span class="msg-sender">System</span>
+          <span class="msg-content">Welcome! Invite a friend to start your taste bridge. Use slash commands like <code>/balanced</code>, <code>/weirder</code>, or just type naturally.</span>
+        </li>
+      </ul>
+
+      <div class="chat-input-row">
+        <input
+          id="chat-input"
+          type="text"
+          placeholder="Type a message or /command…"
+          autocomplete="off"
+          maxlength="280"
+        />
+        <button id="chat-send-btn" class="btn-primary" type="button">Send</button>
+      </div>
+    </section>
+
+  </div><!-- /.room-layout -->
+
+  <!-- ── Collapsible system console ────────────────────────────────── -->
+  <details class="sys-console" id="sys-console">
+    <summary class="sys-console-toggle">System Console</summary>
+    <pre id="sys-log" class="sys-log" aria-live="polite"></pre>
+  </details>
+
+  <script>
+  // ── Constants ──────────────────────────────────────────────────────
+  const ROOM_ID    = {{ room_id | tojson }};
+  const HOST_NAME  = {{ host_display_name | tojson }};
+  const LK_URL     = {{ livekit_url | tojson }};
+  const IS_DEMO    = {{ is_demo | tojson }};
+
+  // Retrieve token stored by the create-room flow.
+  const storedToken    = sessionStorage.getItem(`lk_token_${ROOM_ID}`);
+  const storedIdentity = sessionStorage.getItem(`lk_identity_${ROOM_ID}`) || HOST_NAME;
+
+  // ── State ──────────────────────────────────────────────────────────
+  const S = {
+    room:        null,   // LiveKit Room instance
+    identity:    storedIdentity,
+    token:       storedToken,
+    isHost:      !!storedToken,   // host has the token pre-loaded
+    connected:   false,
+    guestName:   null,
+    bridgeReady: false,
+    prevTrackId: null,
+  };
+
+  // ── DOM refs ───────────────────────────────────────────────────────
+  const $  = id => document.getElementById(id);
+  const participantB    = $("participant-b");
+  const compatBar       = $("compat-bar");
+  const compatPct       = $("compat-pct");
+  const recoLoading     = $("reco-loading");
+  const recoEmpty       = $("reco-empty");
+  const recoCard        = $("reco-card");
+  const actionBar       = $("action-bar");
+  const joinBanner      = $("join-banner");
+  const restoredBanner  = $("restored-banner");
+  const chatList        = $("chat-list");
+  const chatInput       = $("chat-input");
+  const chatSendBtn     = $("chat-send-btn");
+  const lkStatus        = $("lk-status");
+  const sysLog          = $("sys-log");
+  const shareUrl        = $("share-url");
+  const copyLinkBtn     = $("copy-link-btn");
+  const trackArt        = $("track-art");
+  const trackArtPlaceholder = $("track-art-placeholder");
+
+  // ── Utilities ──────────────────────────────────────────────────────
+  function log(msg) {
+    const line = `[${new Date().toISOString()}] ${msg}\n`;
+    sysLog.textContent += line;
+    sysLog.scrollTop = sysLog.scrollHeight;
+  }
+
+  function show(el) { el.classList.remove("hidden"); }
+  function hide(el) { el.classList.add("hidden"); }
+  function toggle(el, visible) { visible ? show(el) : hide(el); }
+
+  // ── Share link ─────────────────────────────────────────────────────
+  shareUrl.value = window.location.href;
+  copyLinkBtn.addEventListener("click", () => {
+    navigator.clipboard.writeText(window.location.href).then(() => {
+      copyLinkBtn.textContent = "Copied!";
+      setTimeout(() => { copyLinkBtn.textContent = "Copy link"; }, 2000);
+    });
+  });
+
+  // ── Chat rendering ─────────────────────────────────────────────────
+  const SLASH_COMMANDS = [
+    "/balanced", "/more-me", "/more-them", "/weirder",
+    "/safer", "/moodier", "/more-energy", "/why", "/next",
+  ];
+
+  function renderMarkdown(text) {
+    // Minimal inline: **bold**, `code`
+    return text
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/`(.+?)`/g, "<code>$1</code>");
+  }
+
+  function appendChatMessage({ sender, displayName, content, isSystem }) {
+    const li = document.createElement("li");
+    li.className = `chat-msg ${isSystem ? "system-msg" : "user-msg"}`;
+    li.innerHTML = `
+      <span class="msg-sender">${escHtml(displayName || sender)}</span>
+      <span class="msg-content">${renderMarkdown(escHtml(content))}</span>
+    `;
+    chatList.appendChild(li);
+    chatList.scrollTop = chatList.scrollHeight;
+  }
+
+  function escHtml(s) {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  // ── Recommendation rendering ───────────────────────────────────────
+  function renderRecommendation(data) {
+    const { bridge_reco, commentary, knobs } = data;
+    if (!bridge_reco) return;
+
+    $("track-name").textContent   = bridge_reco.track_name;
+    $("track-artist").textContent = bridge_reco.artist;
+    $("track-album").textContent  = bridge_reco.album || "";
+
+    if (bridge_reco.album_art) {
+      trackArt.src = bridge_reco.album_art;
+      show(trackArt);
+      hide(trackArtPlaceholder);
+    } else {
+      hide(trackArt);
+      show(trackArtPlaceholder);
+    }
+
+    if (commentary) {
+      $("shared-vibe").textContent      = commentary.shared_vibe;
+      $("biggest-contrast").textContent = commentary.biggest_contrast;
+      $("bridge-reason").textContent    = commentary.bridge_reason;
+      const pct = Math.round(commentary.confidence * 100);
+      $("confidence-bar").style.width   = `${pct}%`;
+      $("confidence-text").textContent  = `${commentary.confidence_label} (${pct}%)`;
+    }
+
+    // Score mini-grid
+    const grid = $("score-grid");
+    const scores = bridge_reco.scores || {};
+    const scoreLabels = {
+      sim_a: "Fits you", sim_b: "Fits them",
+      bridge_quality: "Bridge", fairness: "Fairness", novelty: "Novelty",
+    };
+    grid.innerHTML = Object.entries(scoreLabels).map(([k, label]) => {
+      const v = scores[k] != null ? Math.round(scores[k] * 100) : 0;
+      return `
+        <div class="score-cell">
+          <span class="score-cell-label">${label}</span>
+          <div class="score-bar-track"><div class="score-bar-fill" style="width:${v}%"></div></div>
+          <span class="score-cell-val">${v}%</span>
+        </div>`;
+    }).join("");
+
+    hide(recoLoading);
+    hide(recoEmpty);
+    show(recoCard);
+    show(actionBar);
+
+    S.prevTrackId = bridge_reco.track_id;
+    S.bridgeReady = true;
+    log(`Recommendation rendered: ${bridge_reco.track_name} by ${bridge_reco.artist} (total score: ${scores.total})`);
+  }
+
+  // ── Compatibility display ──────────────────────────────────────────
+  function updateCompatibility(state) {
+    if (!state) return;
+    const pct = Math.round((state.compatibility || 0) * 100);
+    compatBar.style.width = `${pct}%`;
+    compatPct.textContent = pct ? `${pct}%` : "—";
+    if (state.guest_display_name) {
+      participantB.textContent = state.guest_display_name;
+    }
+  }
+
+  // ── API helpers ────────────────────────────────────────────────────
+  async function fetchRoomState() {
+    const r = await fetch(`/api/rooms/${ROOM_ID}`);
+    if (!r.ok) return null;
+    return r.json();
+  }
+
+  async function callRecommend({ command = null, freeText = null } = {}) {
+    show(recoLoading);
+    log(`Requesting recommendation (cmd=${command || "—"}, text=${freeText || "—"})`);
+    const body = {};
+    if (command)  body.command   = command;
+    if (freeText) body.free_text = freeText;
+
+    try {
+      const r = await fetch(`/api/rooms/${ROOM_ID}/recommend`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) { log(`Recommend API error: ${r.status}`); hide(recoLoading); return; }
+      const data = await r.json();
+      renderRecommendation(data);
+
+      // Post system message to chat
+      const sysMsg = data.system_message || "";
+      if (sysMsg) {
+        appendChatMessage({ sender: "system", displayName: "System", content: sysMsg, isSystem: true });
+        await persistChatMsg(sysMsg, true);
+      }
+    } catch (err) {
+      log(`Recommend error: ${err}`);
+      hide(recoLoading);
+    }
+  }
+
+  async function persistChatMsg(content, isSystem) {
+    const body = {
+      content,
+      is_system: isSystem,
+      sender_identity: isSystem ? "system" : S.identity,
+      display_name: isSystem ? "System" : (S.identity || "You"),
+    };
+    await fetch(`/api/rooms/${ROOM_ID}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).catch(() => {});
+  }
+
+  // ── Chat send logic ────────────────────────────────────────────────
+  async function sendMessage() {
+    const text = chatInput.value.trim();
+    if (!text) return;
+    chatInput.value = "";
+
+    const isCommand = SLASH_COMMANDS.includes(text.toLowerCase());
+    const isFreeText = !isCommand;
+
+    // Show the user's own message immediately in chat.
+    appendChatMessage({
+      sender: S.identity,
+      displayName: S.identity || "You",
+      content: text,
+      isSystem: false,
+    });
+    await persistChatMsg(text, false);
+
+    // Broadcast via LiveKit text stream if connected.
+    if (S.room && S.connected) {
+      try {
+        await S.room.localParticipant.sendText(text, { topic: "chat" });
+        log(`Sent text stream: "${text}"`);
+      } catch (err) {
+        log(`LiveKit text stream error: ${err}`);
+      }
+    }
+
+    // Trigger recommendation if it's a command or a nudge on an active room.
+    if (isCommand) {
+      await callRecommend({ command: text.toLowerCase() });
+    } else if (isFreeText && S.bridgeReady) {
+      await callRecommend({ freeText: text });
+    }
+  }
+
+  chatSendBtn.addEventListener("click", sendMessage);
+  chatInput.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  });
+
+  // Action bar shortcuts
+  document.querySelectorAll(".action-btn[data-cmd]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const cmd = btn.dataset.cmd;
+      appendChatMessage({ sender: S.identity, displayName: S.identity || "You", content: cmd, isSystem: false });
+      persistChatMsg(cmd, false);
+      callRecommend({ command: cmd });
+    });
+  });
+
+  // ── Join form (second user) ────────────────────────────────────────
+  $("join-form").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = $("join-name").value.trim();
+    if (!name) return;
+    const btn = e.target.querySelector("button");
+    btn.disabled = true;
+    btn.textContent = "Joining…";
+
+    try {
+      const r = await fetch(`/api/rooms/${ROOM_ID}/join`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ display_name: name }),
+      });
+      if (!r.ok) throw new Error(`Status ${r.status}`);
+      const data = await r.json();
+      S.token    = data.livekit_token;
+      S.identity = name;
+      S.isHost   = false;
+      sessionStorage.setItem(`lk_token_${ROOM_ID}`, data.livekit_token);
+      sessionStorage.setItem(`lk_identity_${ROOM_ID}`, name);
+      hide(joinBanner);
+      updateCompatibility(data.state);
+      if (data.restored && data.state?.bridge_reco) {
+        show(restoredBanner);
+        renderRecommendation({
+          bridge_reco: data.state.bridge_reco,
+          commentary:  data.state.commentary,
+          knobs:       data.state.knobs,
+        });
+        appendChatMessage({
+          sender: "system", displayName: "System",
+          content: "Previous recommendation restored. Use /next for a fresh pick.",
+          isSystem: true,
+        });
+      }
+      await connectLiveKit(data.livekit_token);
+      await callRecommend();
+    } catch (err) {
+      log(`Join error: ${err}`);
+      btn.disabled = false;
+      btn.textContent = "Join room";
+    }
+  });
+
+  // ── LiveKit integration ────────────────────────────────────────────
+  async function connectLiveKit(token) {
+    if (!window.LivekitClient) {
+      log("LiveKit SDK not available — running in offline mode.");
+      return;
+    }
+    const { Room, RoomEvent } = window.LivekitClient;
+
+    const room = new Room({
+      adaptiveStream: true,
+      dynacast: true,
+    });
+    S.room = room;
+
+    room.on(RoomEvent.Connected, () => {
+      S.connected = true;
+      lkStatus.textContent = "● Live";
+      lkStatus.className = "lk-status lk-connected";
+      log(`LiveKit connected. Room: ${ROOM_ID}, Identity: ${S.identity}`);
+      // Announce presence via participant attribute
+      room.localParticipant.setAttributes({
+        displayName: S.identity,
+        role: S.isHost ? "host" : "guest",
+        roomId: ROOM_ID,
+      }).catch(() => {});
+    });
+
+    room.on(RoomEvent.Disconnected, () => {
+      S.connected = false;
+      lkStatus.textContent = "● Offline";
+      lkStatus.className = "lk-status lk-disconnected";
+      log("LiveKit disconnected.");
+    });
+
+    room.on(RoomEvent.ParticipantConnected, (participant) => {
+      const name = participant.attributes?.displayName || participant.identity;
+      log(`Participant joined: ${name}`);
+      appendChatMessage({
+        sender: "system", displayName: "System",
+        content: `${name} joined the room. Computing taste bridge…`,
+        isSystem: true,
+      });
+      fetchRoomState().then(state => {
+        updateCompatibility(state);
+        if (state?.taste_profile_ready) callRecommend();
+      });
+    });
+
+    room.on(RoomEvent.ParticipantDisconnected, (participant) => {
+      const name = participant.attributes?.displayName || participant.identity;
+      log(`Participant left: ${name}`);
+      appendChatMessage({
+        sender: "system", displayName: "System",
+        content: `${name} left the room.`,
+        isSystem: true,
+      });
+    });
+
+    // Receive chat from other participants via text streams
+    room.on(RoomEvent.TextStreamReceived, async (reader, participantInfo) => {
+      const chunks = [];
+      for await (const chunk of reader) {
+        chunks.push(chunk);
+      }
+      const text = chunks.join("");
+      const senderName = participantInfo.attributes?.displayName || participantInfo.identity;
+      log(`Text stream received from ${senderName}: "${text}"`);
+      appendChatMessage({
+        sender: participantInfo.identity,
+        displayName: senderName,
+        content: text,
+        isSystem: false,
+      });
+    });
+
+    room.on(RoomEvent.ParticipantAttributesChanged, (changedAttributes, participant) => {
+      log(`Attributes changed for ${participant.identity}: ${JSON.stringify(changedAttributes)}`);
+    });
+
+    try {
+      await room.connect(LK_URL, token);
+    } catch (err) {
+      log(`LiveKit connect failed: ${err.message}. Continuing in offline mode.`);
+      lkStatus.textContent = "● Offline";
+      lkStatus.className = "lk-status lk-disconnected";
+    }
+  }
+
+  // ── Initialise ─────────────────────────────────────────────────────
+  async function init() {
+    log(`Taste Bridge room: ${ROOM_ID}`);
+    log(`Demo mode: ${IS_DEMO}`);
+
+    if (S.token) {
+      // Host path — token was stored at room creation.
+      hide(joinBanner);
+      const state = await fetchRoomState();
+      updateCompatibility(state);
+
+      // Load persisted chat history.
+      try {
+        const histResp = await fetch(`/api/rooms/${ROOM_ID}/chat?limit=50`);
+        if (histResp.ok) {
+          const history = await histResp.json();
+          history.forEach(m => {
+            appendChatMessage({
+              sender:      m.sender_identity,
+              displayName: m.display_name,
+              content:     m.content,
+              isSystem:    m.is_system,
+            });
+          });
+        }
+      } catch (_) {}
+
+      // Restore previous recommendation if present.
+      if (state?.bridge_reco) {
+        show(restoredBanner);
+        renderRecommendation({
+          bridge_reco: state.bridge_reco,
+          commentary:  state.commentary,
+          knobs:       state.knobs,
+        });
+        log("Previous state restored from DB snapshot.");
+      }
+
+      await connectLiveKit(S.token);
+    } else {
+      // Guest path — show join form.
+      show(joinBanner);
+      hide(recoEmpty);
+      log("No stored token — showing join form.");
+    }
+  }
+
+  init();
+  </script>
+</body>
+</html>

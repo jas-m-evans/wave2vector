@@ -119,3 +119,101 @@ Runtime assets are saved under `./data/`. Confirm the process can write to that 
 - SQLModel + SQLite
 - Librosa + NumPy
 - Matplotlib
+
+---
+
+## Taste Bridge Chat
+
+Taste Bridge is a realtime shared listening experience built on top of the audio similarity engine.
+Two users join a room, the system computes a **bridge recommendation** — the track that sits best
+between both of their taste profiles — and they can steer it together through chat.
+
+### Quick start
+
+1. Open the home page and enter your name under **Taste Bridge Chat**.
+2. Click **Start a room** — you'll land on a room page with a shareable link.
+3. Send the link to a friend. Once they join, the taste bridge is computed automatically.
+4. Use the chat panel or action buttons to steer the recommendation.
+
+No Spotify credentials are required — demo mode generates deterministic taste profiles from
+each user's display name. Connect Spotify (see below) for real recommendations.
+
+### Chat commands
+
+| Command | Effect |
+|---|---|
+| `/balanced` | Equal weight to both users' taste |
+| `/more-me` | Lean the recommendation toward your taste |
+| `/more-them` | Lean the recommendation toward your friend's taste |
+| `/weirder` | More adventurous, less mainstream |
+| `/safer` | More familiar, crowd-pleasing picks |
+| `/moodier` | Darker, more emotional |
+| `/more-energy` | Higher energy tracks |
+| `/next` | Different track (diversity penalty applied) |
+| `/why` | Explain the current recommendation |
+
+You can also type natural language nudges:
+- *"make it darker"*
+- *"something both of us would actually save"*
+- *"give us a left turn"*
+- *"less electronic, more acoustic"*
+
+### System console
+
+Click **System Console** at the bottom of the room page to expand a real-time log of all
+LiveKit events, API calls, and scoring results — useful for debugging or demos.
+
+### Architecture
+
+```
+app/
+├── spotify.py          Spotify OAuth2 PKCE + audio feature API (demo fallback included)
+├── livekit_utils.py    LiveKit JWT token generation
+├── recommender.py      Deterministic bridge recommendation engine + knob system
+├── commentary.py       Rule-based commentary (shared vibe, contrast, confidence)
+├── models.py           TasteBridgeRoom + ChatMessage DB tables
+├── schemas.py          Pydantic request/response schemas
+├── main.py             API routes: /api/rooms/*, /room/{id}
+├── templates/
+│   ├── room.html       Taste Bridge Chat UI
+│   └── index.html      Home page with room entry
+└── static/styles.css   Extended component styles
+```
+
+### Recommendation engine
+
+The bridge score for each candidate track is:
+
+```
+score = 0.35 × sim_target      # matches knob-influenced target profile
+      + 0.25 × bridge_quality  # fits both users on average
+      + 0.20 × fairness        # equal fit for both users
+      + 0.20 × novelty_term    # scaled by noveltyBias knob
+```
+
+All ranking is deterministic: identical inputs and seed always produce the same result.
+
+### Connecting Spotify
+
+Set the following environment variables before starting the server:
+
+```bash
+SPOTIFY_CLIENT_ID=your_client_id
+SPOTIFY_CLIENT_SECRET=your_client_secret
+SPOTIFY_REDIRECT_URI=http://localhost:8000/auth/spotify/callback
+```
+
+Register `http://localhost:8000/auth/spotify/callback` as a redirect URI in your
+[Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
+
+### Connecting LiveKit
+
+```bash
+LIVEKIT_API_KEY=your_api_key
+LIVEKIT_API_SECRET=your_api_secret
+LIVEKIT_URL=wss://your-livekit-host.livekit.cloud
+```
+
+Without these variables the app runs with a local dev key (useful for demos without
+a LiveKit Cloud instance).
+
